@@ -1,12 +1,23 @@
 # encoding: utf-8
 
+import os
+import codecs
+
+from docutils import nodes
+from docutils.io import DocTreeInput, StringOutput
+from docutils.frontend import OptionParser
+
 import sphinx.builders
 import sphinx.theming
-from sphinx.util.nodes import inline_all_toctrees
-from sphinx.writers.html import HTMLTranslator
-from sphinx.highlighting import PygmentsBridge
-from sphinx.util.console import bold, darkgreen, brown
 
+from sphinx.highlighting import PygmentsBridge
+from sphinx.locale import admonitionlabels, versionlabels, _
+from sphinx.util.console import bold, darkgreen, brown
+from sphinx.writers.html import HTMLTranslator
+
+from sphinx.util.nodes import inline_all_toctrees
+from sphinx.util.osutil import SEP, os_path, relative_uri, ensuredir, \
+     movefile, ustrftime, copyfile
 from sphinx import __version__
 
 import kindlewriter
@@ -21,14 +32,10 @@ class KindleBuilder(sphinx.builders.Builder):
     
     def init(self):
         self.init_highlighter()
-        self.init_translator_class()
      
     def init_highlighter(self):
         self.highlighter = PygmentsBridge('html', 'sphinx',
                                           self.config.trim_doctest_flags)
-
-    def init_translator_class(self):
-        self.translator_class = HTMLTranslator
     
     def get_outdated_docs(self):
         return 'all documents'
@@ -42,11 +49,28 @@ class KindleBuilder(sphinx.builders.Builder):
         self.fix_refuris(tree)
         return tree
 
+    def fix_refuris(self, tree):
+        # fix refuris with double anchor
+        fname = self.config.master_doc + self.out_suffix
+        for refnode in tree.traverse(nodes.reference):
+            if 'refuri' not in refnode:
+                continue
+            refuri = refnode['refuri']
+            hashindex = refuri.find('#')
+            if hashindex < 0:
+                continue
+            hashindex = refuri.find('#', hashindex+1)
+            if hashindex >= 0:
+                refnode['refuri'] = fname + refuri[hashindex:]
+
     def prepare_writing(self, docnames):
         from sphinx.search import IndexBuilder
-        print "prepare_writing"
         self.docwriter = kindlewriter.KindleHTMLWriter(self)
-
+        self.docsettings = OptionParser(
+            defaults=self.env.settings,
+            components=(self.docwriter,)).get_default_values()
+        self.docsettings.compact_lists = True
+        
         # determine the additional indices to include
         self.domain_indices = []
 
@@ -86,7 +110,6 @@ class KindleBuilder(sphinx.builders.Builder):
                                  '', indexcls.shortname))
 
         self.globalcontext = dict(
-            embedded = self.embedded,
             project = self.config.project,
             release = self.config.release,
             version = self.config.version,
@@ -135,9 +158,44 @@ class KindleBuilder(sphinx.builders.Builder):
         self.docwriter.write(doctree, destination)
         self.docwriter.assemble_parts()
         body = self.docwriter.parts['fragment']
-        metatags = self.docwriter.clean_meta
+        self.handle_page(docname, self.docwriter.parts, event_arg=doctree)
 
-        ctx = self.get_doc_context(docname, body, metatags)
-        self.index_page(docname, doctree, ctx.get('title', ''))
-        self.handle_page(docname, ctx, event_arg=doctree)
- 
+    def get_target_uri(self, docname, typ=None):
+        if docname in self.env.all_docs:
+            # all references are on the same page...
+            return self.config.master_doc + self.out_suffix + \
+                   '#document-' + docname
+        else:
+            # chances are this is a html_additional_page
+            return docname + self.out_suffix
+
+    def handle_page(self, pagename, part, event_arg=None):
+        ctx = self.globalcontext.copy()
+        ctx['body'] = part['fragment']
+        ctx['encoding'] = encoding = self.config.html_output_encoding
+        
+        templatename='default'
+        outfilename=None, 
+
+        self.app.emit('html-page-context', pagename, templatename,
+                      ctx, event_arg)
+
+        
+        output = part['whole_contents']
+
+        # for debug
+        def get_outfilename(pagename):
+            return os.path.join(self.outdir, os_path(pagename) + self.out_suffix)
+
+        outfilename = get_outfilename('index')
+        # outfilename's path is in general different from self.outdir
+        ensuredir(os.path.dirname(outfilename))
+        try:
+            f = codecs.open(outfilename, 'w', encoding)
+            try:
+                f.write(output)
+            finally:
+                f.close()
+        except (IOError, OSError), err:
+            self.warn("error writing file %s: %s" % (outfilename, err))
+

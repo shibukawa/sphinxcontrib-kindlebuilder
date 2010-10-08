@@ -1,35 +1,110 @@
 
-from docutils.writers import Writer
 from docutils import nodes
-import docutils.writers.html4css1
+from docutils.writers.html4css1 import Writer, HTMLTranslator
 from lasyevaluatearray import LasyEvaluateArray
 
 
 class KindleHTMLWriter(Writer):
     supported = ('html',)
 
+    visitor_attributes = (
+        'body_pre_docinfo', 'docinfo', 'body',
+        'title', 'subtitle', 'fragment', 'pictures',
+        'whole_contents')
+    
     def __init__(self, builder):
         print "KindleHTMLWriter"
         Writer.__init__(self)
         self.builder = builder
+        self.translator_class = KindleHTMLTranslator
 
     def get_transforms(self):
         return writers.Writer.get_transforms(self) + [writer_aux.Admonitions]
 
-    def __init__(self):
-        writers.Writer.__init__(self)
-        self.translator_class = KindleHTMLTranslator
+    def translate(self):
+        # sadly, this is mostly copied from parent class
+        self.visitor = visitor = self.translator_class(self.builder,
+                                                       self.document)
+        self.document.walkabout(visitor)
+        self.output = visitor.astext()
+        for attr in self.visitor_attributes:
+            setattr(self, attr, getattr(visitor, attr, None))
 
 
-class KindleHTMLTranslator(docutils.writers.html4css1.HTMLTranslator):
-    def __init__(self, document):
+class KindleReferenceWriter(LasyEvaluateArray):
+    def add_reference(self, title, type):
+        label = "kindle special reference: %s" % type
+        self.append('<reference title="%s" type="%s" filepos=' % (title, type))
+        self.offset(label, 10, "%010d")
+        self.append(' />')
+        
+        self.parent.label(label)
+        self.parent.append("<h1><b>%s/b></h1> <br>")
+
+
+class KindleHeadingWriter(LasyEvaluateArray):
+    def init(self):
+        self.last_index = 1
+        self.context = [0]
+        self.last_context = 0
+    
+    def visit_heading(self, level, title):
+        index = self.last_id
+        self.last_id += 1
+        
+        label = "kindle heading: %s-%s" % (level, index)
+        print label
+        
+        if level == 1:
+            self.append("<h3><b><a filepos=")
+            self.offset(label, 10, "%010d")
+            self.append(" >%s</a><br></b></h3><br>" % title)
+            
+            #self.parent.append("<mbp:pagebreak/>")
+            self.parent.label(label)
+            self.parent.append("<h2> <b>%s</b></H2>" % title)
+            self.context.append(level)
+        elif level == 2:
+            self.append("<a filepos=")
+            self.offset(label, 10, "%010d")
+            self.append(" ><b>%s</b></a><br>" % title)
+            
+            if self.context[-1] != 1:
+                 self.parent.append('<div height="24"></div>')
+            self.parent.label(label)
+            self.parent.append("<a></A> <h3>%s</H3>" % title)
+            self.context.append(level)
+        elif level == 3:
+            if self.context[-1] != 3:
+                self.append("<p><ul>")
+            self.append("<a filepos=")
+            self.offset(label, 10, "%010d")
+            self.append(" >%s</a><br>" % title)
+
+            self.parent.label(label)
+            self.parent.append("<a></A> <h4>%s</H4>" % title)
+            self.context.append(level)
+    
+    def depart_heading(self):
+        level = self.context.pop()
+        if level == 2 and self.last_context == 3:
+            self.append("</ul></p><br>")
+        self.last_context = level
+
+
+class KindleHTMLTranslator(HTMLTranslator):
+    def __init__(self, builder, document):
         nodes.NodeVisitor.__init__(self, document)
-        self.body_prefix = ['</head>\n<body>\n']
+        self.builder = builder
+        self.settings = settings = document.settings
         # document title, subtitle display
         self.body_pre_docinfo = []
         # author, date, etc.
         self.docinfo = []
-        self.body = LasyEvaluateArray()
+        
+        self.whole_contents = LasyEvaluateArray()
+        self.body, self.reference, self.headings = self.initial_contents()
+        
         self.fragment = []
         self.section_level = 0
         self.initial_header_level = 1
@@ -43,26 +118,39 @@ class KindleHTMLTranslator(docutils.writers.html4css1.HTMLTranslator):
         self.in_sidebar = None
         self.title = []
         self.subtitle = []
-        self.html_head = [self.content_type] # charset not interpolated
-        self.html_title = []
-        self.html_subtitle = []
-        self.html_body = []
         self.in_document_title = 0
         self.in_mailto = 0
         self.author_in_authors = None
+        
+        self.kindle_title = None
+        self.pictures = []
+    
+    def initial_contents(self):
+        self.whole_contents.append("<html><head><guide>")
+        reference = self.whole_contents.sub_array(KindleReferenceWriter)
+        self.whole_contents.append("</buide></head><body>")
+        reference.add_reference("Table of Contents", "toc")
+        
+        headings = self.whole_contents.sub_array(KindleHeadingWriter)
+        
+        self.whole_contents.append("<p><center><h1><big>* * *</big></h1></center></p>  <mbp:pagebreak/>")
+        body = self.whole_contents.sub_array()
+        self.whole_contents.append("</body></html>")
+        return body, reference, headings
 
     def astext(self):
-        return ''.join(self.head_prefix + self.head
-                       + self.stylesheet + self.body_prefix
-                       + self.body_pre_docinfo + self.docinfo
-                       + self.body + self.body_suffix)
+        self.fragment.extend(self.body.as_list())
+        return self.whole_contents.join()
 
     def visit_document(self, node):
-        self.head.append('<title>%s</title>\n'
-                         % self.encode(node.get('title', '')))
+        self.kindle_title = node.get('title', '')
+        return
 
     def depart_document(self, node):
-        self.fragment.extend(self.body)
+        assert not self.context, 'len(context) = %s' % len(self.context)
+        print self.body.as_list()
+        self.fragment.extend(self.body.as_list())
+        return
         self.body_prefix.append(self.starttag(node, 'div', CLASS='document'))
         self.body_suffix.insert(0, '</div>\n')
         # skip content-type meta tag with interpolated charset value:
@@ -70,30 +158,35 @@ class KindleHTMLTranslator(docutils.writers.html4css1.HTMLTranslator):
         self.html_body.extend(self.body_prefix[1:] + self.body_pre_docinfo
                               + self.docinfo + self.body
                               + self.body_suffix[:-1])
-        assert not self.context, 'len(context) = %s' % len(self.context)
 
     def visit_section(self, node):
         self.section_level += 1
-        self.body.append(
-            self.starttag(node, 'div', CLASS='section'))
+        self.body.append('<p height="0" width="0em">')
 
     def depart_section(self, node):
         self.section_level -= 1
-        self.body.append('</div>\n')
+        self.body.append('</p>')
+
+    def visit_start_of_file(self, node):
+        # only occurs in the single-file builder
+        pass
+    def depart_start_of_file(self, node):
+        self.body.append("<mbp:pagebreak/>")
 
     # not support in Kindle
     
     def visit_header(self, node):
         pass
-
     def depart_header(self, node):
         pass
 
     def visit_footer(self, node):
         pass
-
     def depart_footer(self, node):
         pass
+
+    def visit_comment(self, node):
+        raise nodes.SkipNode
 
     def visit_image(self, node):
         atts = {}

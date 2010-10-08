@@ -50,7 +50,6 @@ class HTMLTranslator(BaseTranslator):
     """
     Our custom HTML translator.
     """
-
     def __init__(self, builder, *args, **kwds):
         BaseTranslator.__init__(self, *args, **kwds)
         self.highlighter = builder.highlighter
