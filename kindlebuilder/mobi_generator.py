@@ -1,53 +1,54 @@
-import virtual_buffer
+import lazyevaluatearray
 import palm_compress
 
-
+import time
 
 _exth_types = {
-    "drm_server_id":1,
-    "drm_commerce_id":2,
-    "drm_ebookbase_book_id":3,
-    "author":100,
-    "publisher":101,
-    "imprint":102,
-	"description":103,
-	"isbn":104,
-	"subject":105,
-	"publishingdate":106,
-	"review":107,
-	"contributor":108,
-	"rights":109,
-	"subjectcode":110,
-	"type":111,
-	"source":112,
-	"asin":113,
-	"versionnumber":114,
-	"sample":115,
-	"startreading_position":116,
-	"retail_price":117,
-	"retail_price_currency":118,
-	"vcoveroffset":119,
-	"thumboffset":120,
-	"hasfakecover":201,
-	"watermark":202,
-	"tamper_proof_keys":203,
-	"clippinglimit":401,
-	"publisherlimit":402,
-	"cdetype":501,
-	"lastupdatetime":502,
-	"updatedtitle":503
+    "drm_server_id":(1, None, None),
+    "drm_commerce_id":(2, None, None),
+    "drm_ebookbase_book_id":(3, None, None),
+    "author":(100, None, None),
+    "publisher":(101, None, None),
+    "imprint":(102, None, None),
+    "description":(103, None, None),
+    "isbn":(104, None, None),
+    "subject":(None, 105, None),
+    "publishingdate":(106, None, time.strtime("%m/%d&Y")),
+    "review":(107, None, None),
+    "contributor":(108, None, None),
+    "rights":(109, None, None),
+    "subjectcode":(110, None, None),
+    "type":(111, None, None),
+    "source":(112, None, None),
+    "asin":(113, None, None),
+    "versionnumber":(114, None, None),
+    "sample":(115, None, None),
+    "startreading_position":(116, None, None),
+    "retail_price":(117, None, None),
+    "retail_price_currency":(118, None, None),
+    "coveroffset":(119, 4, None),
+    "thumboffset":(120, None, None),
+    "hasfakecover":(201, 4, Nne),
+    "watermark":(202, None, None)
+    "tamper_proof_keys":(203, None, None),
+    "clippinglimit":(401, None, "b"),
+    "publisherlimit":(402, None, None),
+    "cdetype":(501, None, "EBOK"),
+    "lastupdatetime":(502, None, None),
+    "updatedtitle":(503, None, None),
 }
 
 
-class MobiFileWriter(virtual_buffer.VirtualBuffer):
-    def __init__(self, name):
-        super(MobiPDBWriter, self).__init__()
-        self.record_count = 1
+class MobiFileWriter(lazyevaluatearray.LazyEvaluateArray):
+    def init(self, name):
+        self.set_variable("name", name)
+        self.name = name
         self.texts = []
         self.images = []
-        self.pdb_format = PalmDataBaseFormat(self)
-        self.palm_header = PalmDocHeader(self)
-        self.mobi_header = MobiHeader(self)
+        
+        self.pdb_header = self.sub_array(PalmDataBaseFormat)
+        self.palmdoc_header = self.sub_array(PalmDocHeader)
+        self.mobi_header = self.sub_array(MobiHeader)
     
     def set_text(self, text):
         while True:
@@ -57,12 +58,15 @@ class MobiFileWriter(virtual_buffer.VirtualBuffer):
             else:
                 self.texts.append(palm_compress.compress(text))
                 break
+
+    def add_exth(self, key, value):
+        self.mobi_header.add_exth(key, value)
     
     def write(self):
-        self.palm_header.write()
-        self.palm_db_format.write(len(self.texts)+1)
+        self.pdb_header.write()
         self.start_record()
-        self.mobi_header.write()
+        self.palmdoc_header.write(len(self.texts)+1)
+        self.mobi_header.write(self.name)
         self.end_record()
         
         for text in self.texts:
@@ -81,10 +85,7 @@ class MobiFileWriter(virtual_buffer.VirtualBuffer):
         self.record_count += 1
 
 
-class PalmDataBaseFormat(virtual_buffer.VirtualBuffer):
-    def __init__(self, parent):
-        super(PDBHeader, self).__init__(parent)
-
+class PalmDataBaseFormat(lazyevaluatearray.LazyEvaluateArray):
     def write(self, record_count):
         self.write_header(record_count)
         self.write_record_entry(record_count)
@@ -113,10 +114,7 @@ class PalmDataBaseFormat(virtual_buffer.VirtualBuffer):
                                            # to Info or raw data
 
 
-class PalmDocHeader(virtual_buffer.VirtualBuffer):
-    def __init__(self, parent):
-        super(PalmDocHeader, self).__init__(parent)
-
+class PalmDocHeader(lazyevaluatearray.LazyEvaluateArray):
     def write(self):
         self.label("pdb header:start")
         self.data("H", 2)                   # 2 = PalmDOC compression
@@ -128,9 +126,8 @@ class PalmDocHeader(virtual_buffer.VirtualBuffer):
         self.label("pdb header:end")
 
 
-class MobiHeader(virtual_buffer.VirtualBuffer):
-    def __init__(self, parent):
-        super(MobiHeader, self).__init__(parent)
+class MobiHeader(lazyevaluatearray.LazyEvaluateArray):
+    def init(self):
         self.exths = []
 
     def write(self, fullname):
@@ -162,8 +159,8 @@ class MobiHeader(virtual_buffer.VirtualBuffer):
         self.variable("DRM size", 2, 0)
         self.variable("DRM flag", 4, 0)
         self.reserve(0, 62)
-        self.variable("extra data flag", 2)
-        
+        self.variable("extra data flag", 2, 2)
+
     def add_exth(self, typename, value):
         typecode = _exth_types[typename]
         self.exths.append((typecode, value))
@@ -180,7 +177,7 @@ class MobiHeader(virtual_buffer.VirtualBuffer):
             self.length("exth record/%d:start" % i, "exth record/%d:end" % i, 4)
             self.data(value)
             self.label("ext record/%d:end" % i)
-            
+
         self.label("exth record:end")
         self.label("full name:start")
         self.data(fullname)

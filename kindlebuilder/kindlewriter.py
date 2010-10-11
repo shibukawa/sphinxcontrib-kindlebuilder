@@ -29,6 +29,7 @@ class KindleHTMLWriter(Writer):
         self.output = visitor.astext()
         for attr in self.visitor_attributes:
             setattr(self, attr, getattr(visitor, attr, None))
+        self.visitor.whole_contents.dump()
 
 
 class KindleReferenceWriter(LasyEvaluateArray):
@@ -39,57 +40,57 @@ class KindleReferenceWriter(LasyEvaluateArray):
         self.append(' />')
         
         self.parent.label(label)
-        self.parent.append("<h1><b>%s/b></h1> <br>")
+        self.parent.append("<h1><b>%s</b></h1> <br>" % title)
 
 
 class KindleHeadingWriter(LasyEvaluateArray):
     def init(self):
         self.last_index = 1
-        self.context = [0]
-        self.last_context = 0
+        self.last_level = 0
     
-    def visit_heading(self, level, title):
-        index = self.last_id
-        self.last_id += 1
+    def visit(self, level, title):
+        index = self.last_index
+        self.last_index += 1
         
-        label = "kindle heading: %s-%s" % (level, index)
+        label = "kindle heading: %s-%s" % (index, level)
         print label
         
-        if level == 1:
-            self.append("<h3><b><a filepos=")
-            self.offset(label, 10, "%010d")
-            self.append(" >%s</a><br></b></h3><br>" % title)
-            
-            #self.parent.append("<mbp:pagebreak/>")
-            self.parent.label(label)
-            self.parent.append("<h2> <b>%s</b></H2>" % title)
-            self.context.append(level)
-        elif level == 2:
-            self.append("<a filepos=")
-            self.offset(label, 10, "%010d")
-            self.append(" ><b>%s</b></a><br>" % title)
-            
-            if self.context[-1] != 1:
-                 self.parent.append('<div height="24"></div>')
-            self.parent.label(label)
-            self.parent.append("<a></A> <h3>%s</H3>" % title)
-            self.context.append(level)
+        if level in (1, 2):
+            if self.last_level > 2 and index != 1:
+                self.append("</ul></p></br>")
+            if level == 1:
+                self.append("<h3><b><a filepos=")
+                self.offset(label, 10, "%010d")
+                self.append(" >%s</a></b></h3><br>" % title)
+                if index != 1:
+                    self.parent.append("<mbp:pagebreak/>")
+                self.parent.label(label)
+                self.parent.append("<h1><b>%s</b></H1>" % title)
+            elif level == 2:
+                self.append("<a filepos=")
+                self.offset(label, 10, "%010d")
+                self.append(" ><b>%s</b></a><br>" % title)
+
+                if self.last_level != 1:
+                    self.parent.append('<div height="24"></div>')
+                self.parent.label(label)
+                self.parent.append("<a></A> <h2>%s</H2>" % title)
         elif level == 3:
-            if self.context[-1] != 3:
+            if self.last_level != 3:
                 self.append("<p><ul>")
             self.append("<a filepos=")
             self.offset(label, 10, "%010d")
             self.append(" >%s</a><br>" % title)
 
             self.parent.label(label)
-            self.parent.append("<a></A> <h4>%s</H4>" % title)
-            self.context.append(level)
+            self.parent.append("<a></A> <h3>%s</H3>" % title)
+        elif level in (4, 5, 6):
+            self.parent.append("<a></A> <h%d>%s</H%d>" % (level, title, level))
+        self.last_level = level
     
-    def depart_heading(self):
-        level = self.context.pop()
-        if level == 2 and self.last_context == 3:
-            self.append("</ul></p><br>")
-        self.last_context = level
+    def depart(self, level):
+        print "depart title", level
+
 
 
 class KindleHTMLTranslator(HTMLTranslator):
@@ -107,7 +108,6 @@ class KindleHTMLTranslator(HTMLTranslator):
         
         self.fragment = []
         self.section_level = 0
-        self.initial_header_level = 1
         self.context = []
         self.topic_classes = []
         self.colspecs = []
@@ -134,7 +134,9 @@ class KindleHTMLTranslator(HTMLTranslator):
         headings = self.whole_contents.sub_array(KindleHeadingWriter)
         
         self.whole_contents.append("<p><center><h1><big>* * *</big></h1></center></p>  <mbp:pagebreak/>")
+        reference.add_reference("Start", "start")
         body = self.whole_contents.sub_array()
+        headings.parent = body
         self.whole_contents.append("</body></html>")
         return body, reference, headings
 
@@ -148,16 +150,7 @@ class KindleHTMLTranslator(HTMLTranslator):
 
     def depart_document(self, node):
         assert not self.context, 'len(context) = %s' % len(self.context)
-        print self.body.as_list()
         self.fragment.extend(self.body.as_list())
-        return
-        self.body_prefix.append(self.starttag(node, 'div', CLASS='document'))
-        self.body_suffix.insert(0, '</div>\n')
-        # skip content-type meta tag with interpolated charset value:
-        self.html_head.extend(self.head[1:])
-        self.html_body.extend(self.body_prefix[1:] + self.body_pre_docinfo
-                              + self.docinfo + self.body
-                              + self.body_suffix[:-1])
 
     def visit_section(self, node):
         self.section_level += 1
@@ -255,3 +248,39 @@ class KindleHTMLTranslator(HTMLTranslator):
 
     def depart_image(self, node):
         self.body.append(self.context.pop())
+
+    def visit_title(self, node):
+        """Only 6 section levels are supported by HTML."""
+        check_id = 0
+        close_tag = '</p>\n'
+        if isinstance(node.parent, nodes.topic):
+            self.body.append(
+                  self.starttag(node, 'p', '', CLASS='topic-title first'))
+        elif isinstance(node.parent, nodes.sidebar):
+            self.body.append(
+                  self.starttag(node, 'p', '', CLASS='sidebar-title'))
+        elif isinstance(node.parent, nodes.Admonition):
+            self.body.append(
+                  self.starttag(node, 'p', '', CLASS='admonition-title'))
+        elif isinstance(node.parent, nodes.table):
+            self.body.append(
+                  self.starttag(node, 'caption', ''))
+            close_tag = '</caption>\n'
+        elif isinstance(node.parent, nodes.document):
+            print "title: parent=document", node.astext(), "\n"
+            self.body.append(self.starttag(node, 'h1', '', CLASS='title'))
+            close_tag = '</h1>\n'
+            self.in_document_title = len(self.body)
+        else:
+            assert isinstance(node.parent, nodes.section)
+            if self.builder.config.kindlebuilder_ignore_top_heading:
+                if self.section_level == 1:
+                    raise nodes.SkipNode
+                h_level = self.section_level - 1
+            else:
+                h_level = self.section_level
+            self.headings.visit(h_level, node.astext())
+            print "visit_title(%d): " % h_level, node.astext()
+
+    def depart_title(self, node):
+        pass

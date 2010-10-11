@@ -21,6 +21,7 @@ from sphinx.util.osutil import SEP, os_path, relative_uri, ensuredir, \
 from sphinx import __version__
 
 import kindlewriter
+import mobi_generator
 
 
 class KindleBuilder(sphinx.builders.Builder):
@@ -32,6 +33,7 @@ class KindleBuilder(sphinx.builders.Builder):
     
     def init(self):
         self.init_highlighter()
+        self.output = None
      
     def init_highlighter(self):
         self.highlighter = PygmentsBridge('html', 'sphinx',
@@ -181,7 +183,7 @@ class KindleBuilder(sphinx.builders.Builder):
                       ctx, event_arg)
 
         
-        output = part['whole_contents']
+        self.output = part['whole_contents']
 
         # for debug
         def get_outfilename(pagename):
@@ -193,9 +195,33 @@ class KindleBuilder(sphinx.builders.Builder):
         try:
             f = codecs.open(outfilename, 'w', encoding)
             try:
-                f.write(output)
+                f.write(self.output)
             finally:
                 f.close()
         except (IOError, OSError), err:
             self.warn("error writing file %s: %s" % (outfilename, err))
 
+    def finish(self):
+        self.info(bold('writing additional files...'), nonl=1)
+
+        # pages from extensions
+        for pagelist in self.app.emit('html-collect-pages'):
+            for pagename, context, template in pagelist:
+                self.handle_page(pagename, context, template)
+
+        # the global general index
+        #if self.config.html_use_index:
+        #    self.write_genindex()
+
+        # the global domain-specific indices
+        #self.write_domain_indices()
+        
+        self.info()
+
+        #self.copy_image_files()
+        #self.copy_download_files()
+        #self.copy_static_files()
+        #self.write_buildinfo()
+
+        writer = mobi_generator.MobiFileWriter()
+        writer.set_text(self.output)

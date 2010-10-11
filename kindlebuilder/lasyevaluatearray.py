@@ -32,18 +32,24 @@ class LengthFlag(VirtualChunk):
         start = lazyarray.find_position(self.start_key)
         return self.convert(end - start)
 
+    def dump(self):
+        return "Length: %s - %s" % (self.begin_key, self.end_key)
+
 
 class OffsetFlag(VirtualChunk):
-    def __init__(self, length, position_key, format=None):
-        self.position_key = position_key
+    def __init__(self, length, key, format=None):
+        self.key = key
         self.format = format
         super(OffsetFlag, self).__init__(length)
     
     def write(self, lazyarray):
-        position = lazyarray.find_position(self.position_key)
+        position = lazyarray.find_position(self.key)
         if self.format:
             return self.format % position
         return self.convert(position)
+
+    def dump(self):
+        return "Offset: %s" % self.key
 
 
 class Variable(VirtualChunk):
@@ -57,6 +63,9 @@ class Variable(VirtualChunk):
             return self.format % lazyarray.find_variable(self.key)
         return self.convert(lazyarray.find_variable(self.key))
 
+    def dump(self):
+        return "Variable: %s" % self.key
+
 
 class Label(object):
     def __init__(self, key):
@@ -69,6 +78,9 @@ class Label(object):
     def __len__(self):
         return 0
 
+    def dump(self):
+        return "Label: %s" % self.key
+
 
 class DataChunk(object):
     def __init__(self, data):
@@ -79,6 +91,11 @@ class DataChunk(object):
     
     def __len__(self):
         return len(self.data)
+
+    def dump(self):
+        if len(self.data) < 30:
+            return self.data
+        return self.data[:29]
 
 
 class LasyEvaluateArray(object):
@@ -95,7 +112,7 @@ class LasyEvaluateArray(object):
     
     def init(self):
         pass
-    
+
     def find_position(self, key):
         return self._positions[key]
         
@@ -149,7 +166,6 @@ class LasyEvaluateArray(object):
         return self.write(self)
         
     def calc_position(self, offset=0):
-        offset = 0
         for chunk in self._chunks:
             if isinstance(chunk, Label):
                 self._positions[chunk.key] = offset
@@ -168,3 +184,19 @@ class LasyEvaluateArray(object):
     def __iter__(self):
         for chunk in self._chunks:
             yield chunk.write(self)
+
+    def dump(self, indent=0):
+        output_data = False
+        for chunk in self._chunks:
+            if isinstance(chunk, (DataChunk, str, unicode)):
+                if not output_data:
+                    if isinstance(chunk, (str, unicode)):
+                        print "  " * indent, chunk
+                    else:
+                        print "  " * indent, chunk.dump()
+                output_data = True
+            elif isinstance(chunk, LasyEvaluateArray):
+                chunk.dump(indent + 1)
+            else:
+                output_data = False
+                print "  " * indent, chunk.dump()
