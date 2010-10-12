@@ -150,6 +150,7 @@ class KindleHTMLTranslator(HTMLTranslator):
 
     def depart_document(self, node):
         assert not self.context, 'len(context) = %s' % len(self.context)
+        self.whole_contents.lock()
         self.fragment.extend(self.body.as_list())
 
     def visit_section(self, node):

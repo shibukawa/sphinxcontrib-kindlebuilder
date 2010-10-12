@@ -33,13 +33,13 @@ class LengthFlag(VirtualChunk):
         end = lazyarray.find_position(self.end_key)
         start = lazyarray.find_position(self.start_key)
         if end is None and start is None:
-            raise ValueError("position key: %s and %s is not defined" % (
+            raise ValueError("position key: '%s' and '%s' is not defined" % (
                 self.start_key, self.end_key))
         elif end is None:
-            raise ValueError("position key: %s is not defined" % (
+            raise ValueError("position key: '%s' is not defined" % (
             	self.end_key))
         elif start is None:
-            raise ValueError("position key: %s is not defined" % (
+            raise ValueError("position key: '%s' is not defined" % (
                 self.start_key))
         writer.write(self.convert(end - start))
     
@@ -56,7 +56,7 @@ class OffsetFlag(VirtualChunk):
     def write(self, writer, lazyarray):
         position = lazyarray.find_position(self.key)
         if position is None:
-            raise ValueError("position key: %s is not defined" % (self.key))
+            raise ValueError("position key: '%s' is not defined" % (self.key))
         if self.format:
             writer.write(self.format % position)
         else:
@@ -75,7 +75,7 @@ class Variable(VirtualChunk):
     def write(self, writer, lazyarray):
         value = lazyarray.find_variable(self.key)
         if value is None:
-            raise ValueError("variable key: %s is not defined" % (self.key))
+            raise ValueError("variable key: '%s' is not defined" % (self.key))
         if self.format:
             writer.write(self.format % value)
         else:
@@ -122,14 +122,21 @@ class LazyEvaluateArray(object):
         if parent:
             self._positions = parent._positions
             self._variables = parent._variables
+            self._lock = parent._lock
         else:
             self._positions = {}
             self._variables = {}
+            self._lock = []
         self.parent = parent
         self.init(*args)
     
     def init(self):
         pass
+
+    def lock_check(self):
+        if self._lock:
+            raise RuntimeError(("can't modify array any more. "
+                                "this array is locked"))
 
     def find_position(self, key):
         return self._positions.get(key)
@@ -141,28 +148,35 @@ class LazyEvaluateArray(object):
         self._variables[key] = value
     
     def length(self, start_key, end_key, length):
+        self.lock_check() 
         self._chunks.append(LengthFlag(length, start_key, end_key))
     
     def offset(self, key, length, format=None):
+        self.lock_check()
         self._chunks.append(OffsetFlag(length, key, format))
 
     def variable(self, key, length=4, format=None, default=None):
+        self.lock_check()
         self._chunks.append(Variable(key, length, format))
         if default is not None:
             self.set_variable(key, default)
     
     def label(self, key):
+        self.lock_check()
         self._chunks.append(Label(key))
     
     def append(self, data):
+        self.lock_check()
         self._chunks.append(DataChunk(data))
     
     def data(self, data, *args):
+        self.lock_check()
         if args:
             data = struct.pack(data, *args)
         self._chunks.append(DataChunk(data))
     
     def sub_array(self, array_type=None):
+        self.lock_check()
         if array_type is None:
             array_type = LazyEvaluateArray
         new_array = array_type(self)
@@ -170,33 +184,38 @@ class LazyEvaluateArray(object):
         return new_array
     
     def reserve(self, code, length):
+        self.lock_check()
         for i in range(length):
             self.data("B", code)
 
     def unique_number(self, length=4):
         return int(uuid.uuid4().int % 2 ** (length*8))
 
-    def calc_position(self, offset=0):
+    def _calc_position(self, offset=0):
         for chunk in self._chunks:
             if isinstance(chunk, Label):
+                print "%07d:" % offset, chunk.key
                 self._positions[chunk.key] = offset
             elif isinstance(chunk, LazyEvaluateArray):
-                offset = chunk.calc_position(offset)
+                offset = chunk._calc_position(offset)
             else:
                 offset += len(chunk)
         return offset
-    
+   
+    def lock(self):
+        self._calc_position()
+        self._lock.append(True)
+
     def write(self, writer, dummy=None):
+        if not self._lock:
+            raise RuntimeError(("This array is not locked. "
+                                "Run lock() method first"))
         [chunk.write(writer, self) for chunk in self._chunks]
 
     def as_list(self):
         output = OutputAsList()
         self.write(output)
         return output.result
-
-    def __iter__(self):
-        for chunk in self._chunks:
-            yield chunk.write(self)
 
     def dump(self, indent=0):
         output_data = False
