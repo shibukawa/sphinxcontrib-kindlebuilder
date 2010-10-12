@@ -116,9 +116,8 @@ class MobiFileGenerator(LazyEvaluateArray):
         
         self.calc_position()
         
-        content = self.write()
         file = open(os.path.join(output_folder, basename + ".azw"), "bw")
-        file.write(content)
+        self.write(file)
         file.close()
         
     def start_record(self):

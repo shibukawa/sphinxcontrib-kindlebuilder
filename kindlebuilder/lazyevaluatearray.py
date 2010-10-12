@@ -19,7 +19,7 @@ class VirtualChunk(object):
     def __len__(self):
         return self.length
         
-    def write(self, lazyarray):
+    def write(self, writer, lazyarray):
         raise NotImplemented()
 
 
@@ -29,7 +29,7 @@ class LengthFlag(VirtualChunk):
         self.end_key = end_key
         super(LengthFlag, self).__init__(length)
         
-    def write(self, lazyarray):
+    def write(self, writer, lazyarray):
         end = lazyarray.find_position(self.end_key)
         start = lazyarray.find_position(self.start_key)
         if end is None and start is None:
@@ -41,7 +41,7 @@ class LengthFlag(VirtualChunk):
         elif start is None:
             raise ValueError("position key: %s is not defined" % (
                 self.start_key))
-        return self.convert(end - start)
+        writer.write(self.convert(end - start))
     
     def dump(self):
         return "Length: %s - %s" % (self.begin_key, self.end_key)
@@ -53,13 +53,14 @@ class OffsetFlag(VirtualChunk):
         self.format = format
         super(OffsetFlag, self).__init__(length)
     
-    def write(self, lazyarray):
+    def write(self, writer, lazyarray):
         position = lazyarray.find_position(self.key)
         if position is None:
             raise ValueError("position key: %s is not defined" % (self.key))
         if self.format:
-            return self.format % position
-        return self.convert(position)
+            writer.write(self.format % position)
+        else:
+            writer.write(self.convert(position))
 
     def dump(self):
         return "Offset: %s" % self.key
@@ -71,13 +72,14 @@ class Variable(VirtualChunk):
         self.format = format
         super(Variable, self).__init__(length)
 
-    def write(self, lazyarray):
+    def write(self, writer, lazyarray):
         value = lazyarray.find_variable(self.key)
         if value is None:
             raise ValueError("variable key: %s is not defined" % (self.key))
         if self.format:
-            return self.format % value
-        return self.convert(value)
+            writer.write(self.format % value)
+        else:
+            writer.write(self.convert(value))
 
     def dump(self):
         return "Variable: %s" % self.key
@@ -88,8 +90,8 @@ class Label(object):
         self.key = key
         self.position = None
 
-    def write(self, lazyarray):
-        return ""
+    def write(self, writer, lazyarray):
+        pass
     
     def __len__(self):
         return 0
@@ -102,8 +104,8 @@ class DataChunk(object):
     def __init__(self, data):
         self.data = data
     
-    def write(self, lazyarray):
-        return self.data
+    def write(self, writer, lazyarray):
+        writer.write(self.data)
     
     def __len__(self):
         return len(self.data)
@@ -174,13 +176,6 @@ class LazyEvaluateArray(object):
     def unique_number(self, length=4):
         return int(uuid.uuid4().int % 2 ** (length*8))
 
-    def join(self):
-        self.calc_position()
-        print "\nposition"
-        for key in sorted(self._positions):
-            print key, self._positions[key], "\n"
-        return self.write()
-        
     def calc_position(self, offset=0):
         for chunk in self._chunks:
             if isinstance(chunk, Label):
@@ -191,11 +186,13 @@ class LazyEvaluateArray(object):
                 offset += len(chunk)
         return offset
     
+    def write(self, writer, dummy=None):
+        [chunk.write(writer, self) for chunk in self._chunks]
+
     def as_list(self):
-        return [chunk.write(self) for chunk in self._chunks]
-    
-    def write(self, dummy=None):
-        return u"".join(self.as_list())
+        output = OutputAsList()
+        self.write(output)
+        return output.result
 
     def __iter__(self):
         for chunk in self._chunks:
@@ -216,3 +213,11 @@ class LazyEvaluateArray(object):
             else:
                 output_data = False
                 print "  " * indent, chunk.dump()
+
+class OutputAsList(object):
+    def __init__(self):
+        self.result = []
+
+    def write(self, content):
+        self.result.append(content)
+

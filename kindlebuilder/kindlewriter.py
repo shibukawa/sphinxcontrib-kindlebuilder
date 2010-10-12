@@ -142,7 +142,7 @@ class KindleHTMLTranslator(HTMLTranslator):
 
     def astext(self):
         self.fragment.extend(self.body.as_list())
-        return self.whole_contents.join()
+        return "".join(self.whole_contents.as_list())
 
     def visit_document(self, node):
         self.kindle_title = node.get('title', '')
