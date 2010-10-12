@@ -1,7 +1,7 @@
-
+import os
 from docutils import nodes
 from docutils.writers.html4css1 import Writer, HTMLTranslator
-from lasyevaluatearray import LasyEvaluateArray
+from lazyevaluatearray import LazyEvaluateArray
 
 
 class KindleHTMLWriter(Writer):
@@ -9,7 +9,7 @@ class KindleHTMLWriter(Writer):
 
     visitor_attributes = (
         'body_pre_docinfo', 'docinfo', 'body',
-        'title', 'subtitle', 'fragment', 'pictures',
+        'title', 'subtitle', 'fragment', 'images',
         'whole_contents')
     
     def __init__(self, builder):
@@ -29,10 +29,10 @@ class KindleHTMLWriter(Writer):
         self.output = visitor.astext()
         for attr in self.visitor_attributes:
             setattr(self, attr, getattr(visitor, attr, None))
-        self.visitor.whole_contents.dump()
+        #self.visitor.whole_contents.dump()
 
 
-class KindleReferenceWriter(LasyEvaluateArray):
+class KindleReferenceWriter(LazyEvaluateArray):
     def add_reference(self, title, type):
         label = "kindle special reference: %s" % type
         self.append('<reference title="%s" type="%s" filepos=' % (title, type))
@@ -43,7 +43,7 @@ class KindleReferenceWriter(LasyEvaluateArray):
         self.parent.append("<h1><b>%s</b></h1> <br>" % title)
 
 
-class KindleHeadingWriter(LasyEvaluateArray):
+class KindleHeadingWriter(LazyEvaluateArray):
     def init(self):
         self.last_index = 1
         self.last_level = 0
@@ -103,7 +103,7 @@ class KindleHTMLTranslator(HTMLTranslator):
         # author, date, etc.
         self.docinfo = []
         
-        self.whole_contents = LasyEvaluateArray()
+        self.whole_contents = LazyEvaluateArray()
         self.body, self.reference, self.headings = self.initial_contents()
         
         self.fragment = []
@@ -123,7 +123,7 @@ class KindleHTMLTranslator(HTMLTranslator):
         self.author_in_authors = None
         
         self.kindle_title = None
-        self.pictures = []
+        self.images = []
     
     def initial_contents(self):
         self.whole_contents.append("<html><head><guide>")
@@ -184,70 +184,19 @@ class KindleHTMLTranslator(HTMLTranslator):
     def visit_image(self, node):
         atts = {}
         uri = node['uri']
-        # place SVG and SWF images in an <object> element
-        types = {'.svg': 'image/svg+xml',
-                 '.swf': 'application/x-shockwave-flash'}
-        ext = os.path.splitext(uri)[1].lower()
-        if ext in ('.svg', '.swf'):
-            atts['data'] = uri
-            atts['type'] = types[ext]
-        else:
-            atts['src'] = uri
-            atts['alt'] = node.get('alt', uri)
-        # image size
-        if 'width' in node:
-            atts['width'] = node['width']
-        if 'height' in node:
-            atts['height'] = node['height']
-        if 'scale' in node:
-            if Image and not ('width' in node and 'height' in node):
-                try:
-                    im = Image.open(str(uri))
-                except (IOError, # Source image can't be found or opened
-                        UnicodeError):  # PIL doesn't like Unicode paths.
-                    pass
-                else:
-                    if 'width' not in atts:
-                        atts['width'] = str(im.size[0])
-                    if 'height' not in atts:
-                        atts['height'] = str(im.size[1])
-                    del im
-            for att_name in 'width', 'height':
-                if att_name in atts:
-                    match = re.match(r'([0-9.]+)(\S*)$', atts[att_name])
-                    assert match
-                    atts[att_name] = '%s%s' % (
-                        float(match.group(1)) * (float(node['scale']) / 100),
-                        match.group(2))
-        style = []
-        for att_name in 'width', 'height':
-            if att_name in atts:
-                if re.match(r'^[0-9.]+$', atts[att_name]):
-                    # Interpret unitless values as pixels.
-                    atts[att_name] += 'px'
-                style.append('%s: %s;' % (att_name, atts[att_name]))
-                del atts[att_name]
-        if style:
-            atts['style'] = ' '.join(style)
-        if (isinstance(node.parent, nodes.TextElement) or
-            (isinstance(node.parent, nodes.reference) and
-             not isinstance(node.parent.parent, nodes.TextElement))):
-            # Inline context or surrounded by <a>...</a>.
-            suffix = ''
-        else:
-            suffix = '\n'
+        filesize = os.path.getsize(uri)
+        if filesize > 64000:
+            raise NotImplementedError("should implement this feature")
+        imagesrc = open(uri, "rb").read()
+        self.images.append(imagesrc)
+        index = len(self.images)
         if 'align' in node:
-            atts['class'] = 'align-%s' % node['align']
-        self.context.append('')
-        if ext in ('.svg', '.swf'): # place in an object element,
-            # do NOT use an empty tag: incorrect rendering in browsers
-            self.body.append(self.starttag(node, 'object', suffix, **atts) +
-                             node.get('alt', uri) + '</object>' + suffix)
-        else:
-            self.body.append(self.emptytag(node, 'img', suffix, **atts))
-
+            self.body.append('<center>')
+        self.body.append(self.emptytag(node, 'img', '', recindex=index, hirecindex=index))
+        if 'align' in node:
+            self.body.append('</center>')
     def depart_image(self, node):
-        self.body.append(self.context.pop())
+        pass
 
     def visit_title(self, node):
         """Only 6 section levels are supported by HTML."""

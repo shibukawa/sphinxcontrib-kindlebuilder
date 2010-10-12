@@ -181,10 +181,7 @@ class KindleBuilder(sphinx.builders.Builder):
 
         self.app.emit('html-page-context', pagename, templatename,
                       ctx, event_arg)
-
-        
         self.output = part['whole_contents']
-
         # for debug
         def get_outfilename(pagename):
             return os.path.join(self.outdir, os_path(pagename) + self.out_suffix)
@@ -222,6 +219,16 @@ class KindleBuilder(sphinx.builders.Builder):
         #self.copy_download_files()
         #self.copy_static_files()
         #self.write_buildinfo()
+        
+        if self.config.kindlebuilder_title:
+            name = self.config.kindlebuilder_title
+        else:
+            name = "%s v%s documentation" % (self.config.project, self.config.version)
 
-        writer = mobi_generator.MobiFileWriter()
-        writer.set_text(self.output)
+        generator = mobi_generator.MobiFileGenerator()
+        generator.set_name(name)
+        generator.set_text(self.output)
+        print len(self.docwriter.images)
+        generator.set_images(self.docwriter.images)
+        generator.set_cover_image(self.config.kindlebuilder_cover_image)
+        generator.generate(self.outdir, self.config.kindlebuilder_basename)

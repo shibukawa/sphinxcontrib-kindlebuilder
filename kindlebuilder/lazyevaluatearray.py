@@ -1,3 +1,5 @@
+# encoding: utf-8
+
 import time
 import struct
 import uuid
@@ -6,7 +8,7 @@ class VirtualChunk(object):
     def __init__(self, length):
         self.length = length
     
-    def convert(length, value):
+    def convert(self, value):
         if self.length == 1:
             return struct.pack("B", value)
         elif self.length == 2:
@@ -30,8 +32,17 @@ class LengthFlag(VirtualChunk):
     def write(self, lazyarray):
         end = lazyarray.find_position(self.end_key)
         start = lazyarray.find_position(self.start_key)
+        if end is None and start is None:
+            raise ValueError("position key: %s and %s is not defined" % (
+                self.start_key, self.end_key))
+        elif end is None:
+            raise ValueError("position key: %s is not defined" % (
+            	self.end_key))
+        elif start is None:
+            raise ValueError("position key: %s is not defined" % (
+                self.start_key))
         return self.convert(end - start)
-
+    
     def dump(self):
         return "Length: %s - %s" % (self.begin_key, self.end_key)
 
@@ -44,6 +55,8 @@ class OffsetFlag(VirtualChunk):
     
     def write(self, lazyarray):
         position = lazyarray.find_position(self.key)
+        if position is None:
+            raise ValueError("position key: %s is not defined" % (self.key))
         if self.format:
             return self.format % position
         return self.convert(position)
@@ -56,12 +69,15 @@ class Variable(VirtualChunk):
     def __init__(self, key, length, format=None):
         self.key = key
         self.format = format
-        super(LengthFlag, self).__init__(length)
+        super(Variable, self).__init__(length)
 
     def write(self, lazyarray):
+        value = lazyarray.find_variable(self.key)
+        if value is None:
+            raise ValueError("variable key: %s is not defined" % (self.key))
         if self.format:
-            return self.format % lazyarray.find_variable(self.key)
-        return self.convert(lazyarray.find_variable(self.key))
+            return self.format % value
+        return self.convert(value)
 
     def dump(self):
         return "Variable: %s" % self.key
@@ -98,8 +114,8 @@ class DataChunk(object):
         return self.data[:29]
 
 
-class LasyEvaluateArray(object):
-    def __init__(self, parent = None):
+class LazyEvaluateArray(object):
+    def __init__(self, parent = None, *args):
         self._chunks = []
         if parent:
             self._positions = parent._positions
@@ -108,16 +124,16 @@ class LasyEvaluateArray(object):
             self._positions = {}
             self._variables = {}
         self.parent = parent
-        self.init()
+        self.init(*args)
     
     def init(self):
         pass
 
     def find_position(self, key):
-        return self._positions[key]
+        return self._positions.get(key)
         
     def find_variable(self, key):
-        return self._variables[key]
+        return self._variables.get(key)
     
     def set_variable(self, key, value):
         self._variables[key] = value
@@ -128,8 +144,8 @@ class LasyEvaluateArray(object):
     def offset(self, key, length, format=None):
         self._chunks.append(OffsetFlag(length, key, format))
 
-    def variable(self, key, length=4, default=None):
-        self._chunks.append(Variable(key, length))
+    def variable(self, key, length=4, format=None, default=None):
+        self._chunks.append(Variable(key, length, format))
         if default is not None:
             self.set_variable(key, default)
     
@@ -141,19 +157,19 @@ class LasyEvaluateArray(object):
     
     def data(self, data, *args):
         if args:
-            data = struct(data, *args)
+            data = struct.pack(data, *args)
         self._chunks.append(DataChunk(data))
     
     def sub_array(self, array_type=None):
         if array_type is None:
-            array_type = LasyEvaluateArray
+            array_type = LazyEvaluateArray
         new_array = array_type(self)
         self._chunks.append(new_array)
         return new_array
     
     def reserve(self, code, length):
         for i in range(length):
-            self._chunks.data("b", code)
+            self.data("B", code)
 
     def unique_number(self, length=4):
         return int(uuid.uuid4().int % 2 ** (length*8))
@@ -163,13 +179,13 @@ class LasyEvaluateArray(object):
         print "\nposition"
         for key in sorted(self._positions):
             print key, self._positions[key], "\n"
-        return self.write(self)
+        return self.write()
         
     def calc_position(self, offset=0):
         for chunk in self._chunks:
             if isinstance(chunk, Label):
                 self._positions[chunk.key] = offset
-            elif isinstance(chunk, LasyEvaluateArray):
+            elif isinstance(chunk, LazyEvaluateArray):
                 offset = chunk.calc_position(offset)
             else:
                 offset += len(chunk)
@@ -178,8 +194,8 @@ class LasyEvaluateArray(object):
     def as_list(self):
         return [chunk.write(self) for chunk in self._chunks]
     
-    def write(self, lazyarray):
-        return "".join(self.as_list())
+    def write(self, dummy=None):
+        return u"".join(self.as_list())
 
     def __iter__(self):
         for chunk in self._chunks:
@@ -195,7 +211,7 @@ class LasyEvaluateArray(object):
                     else:
                         print "  " * indent, chunk.dump()
                 output_data = True
-            elif isinstance(chunk, LasyEvaluateArray):
+            elif isinstance(chunk, LazyEvaluateArray):
                 chunk.dump(indent + 1)
             else:
                 output_data = False
