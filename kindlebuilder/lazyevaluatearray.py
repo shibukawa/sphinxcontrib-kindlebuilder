@@ -10,11 +10,11 @@ class VirtualChunk(object):
     
     def convert(self, value):
         if self.length == 1:
-            return struct.pack("B", value)
+            return struct.pack("!B", value)
         elif self.length == 2:
-            return struct.pack("H", value)
+            return struct.pack("!H", value)
         elif self.length == 4:
-            return struct.pack("I", value)
+            return struct.pack("!I", value)
     
     def __len__(self):
         return self.length
@@ -31,17 +31,17 @@ class LengthFlag(VirtualChunk):
         
     def write(self, writer, lazyarray):
         end = lazyarray.find_position(self.end_key)
-        start = lazyarray.find_position(self.start_key)
-        if end is None and start is None:
+        begin = lazyarray.find_position(self.begin_key)
+        if end is None and begin is None:
             raise ValueError("position key: '%s' and '%s' is not defined" % (
-                self.start_key, self.end_key))
+                self.begin_key, self.end_key))
         elif end is None:
             raise ValueError("position key: '%s' is not defined" % (
             	self.end_key))
-        elif start is None:
+        elif begin is None:
             raise ValueError("position key: '%s' is not defined" % (
-                self.start_key))
-        writer.write(self.convert(end - start))
+                self.begin_key))
+        writer.write(self.convert(end - begin))
     
     def dump(self):
         return "Length: %s - %s" % (self.begin_key, self.end_key)
@@ -76,10 +76,15 @@ class Variable(VirtualChunk):
         value = lazyarray.find_variable(self.key)
         if value is None:
             raise ValueError("variable key: '%s' is not defined" % (self.key))
-        if self.format:
-            writer.write(self.format % value)
+        if isinstance(value, (int, long)):
+            if self.format:
+                writer.write(self.format % value)
+            else:
+                writer.write(self.convert(value))
         else:
-            writer.write(self.convert(value))
+            writer.write(value)
+            for i in range(self.length - len(value)):
+                writer.write('\0')
 
     def dump(self):
         return "Variable: %s" % self.key
@@ -117,7 +122,7 @@ class DataChunk(object):
 
 
 class LazyEvaluateArray(object):
-    def __init__(self, parent = None, *args):
+    def __init__(self, parent = None, args=[]):
         self._chunks = []
         if parent:
             self._positions = parent._positions
@@ -175,11 +180,11 @@ class LazyEvaluateArray(object):
             data = struct.pack(data, *args)
         self._chunks.append(DataChunk(data))
     
-    def sub_array(self, array_type=None):
+    def sub_array(self, array_type=None, args=[]):
         self.lock_check()
         if array_type is None:
             array_type = LazyEvaluateArray
-        new_array = array_type(self)
+        new_array = array_type(self, args)
         self._chunks.append(new_array)
         return new_array
     
@@ -194,7 +199,7 @@ class LazyEvaluateArray(object):
     def _calc_position(self, offset=0):
         for chunk in self._chunks:
             if isinstance(chunk, Label):
-                print "%07d:" % offset, chunk.key
+                #print "%07d:" % offset, chunk.key
                 self._positions[chunk.key] = offset
             elif isinstance(chunk, LazyEvaluateArray):
                 offset = chunk._calc_position(offset)
@@ -205,6 +210,9 @@ class LazyEvaluateArray(object):
     def lock(self):
         self._calc_position()
         self._lock.append(True)
+        for key, value in self._variables.items():
+            print "%20s:" % key, value
+
 
     def write(self, writer, dummy=None):
         if not self._lock:
@@ -216,6 +224,10 @@ class LazyEvaluateArray(object):
         output = OutputAsList()
         self.write(output)
         return output.result
+    
+    def __iter__(self):
+        for chunkstr in self.as_list():
+            yield chunkstr
 
     def dump(self, indent=0):
         output_data = False

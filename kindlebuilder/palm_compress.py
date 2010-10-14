@@ -39,7 +39,6 @@ class window(object):
             self.start = 0
 
     def write(self, byte_array):
-        print str(self),
         length = self.last - self.start
         bytes = 0x80 * 256 + ((self.offset) << 3) + length - 3
         byte_array.append(bytes >> 8)
@@ -130,7 +129,6 @@ class text(object):
         merge_buffer()
     
     def write(self, byte_array):
-        print str(self),
         [byte_array.append(char) for char in self.array]
 
     def __nonzero__(self):
@@ -210,7 +208,7 @@ def test():
     Namespaces are one honking great idea -- let's do more of those!
     """
     sample = zen_of_python
-    sample = "‚ ‚¢‚¤‚¦‚¨          ‚ ‚¢‚¤‚¦‚¨“ú–{Œê"
+    #sample = "‚ ‚¢‚¤‚¦‚¨          ‚ ‚¢‚¤‚¦‚¨“ú–{Œê"
     archive = compress(sample)
     result = decompress(archive)
     print
