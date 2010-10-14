@@ -28,7 +28,7 @@ class LengthFlag(VirtualChunk):
         self.begin_key = begin_key
         self.end_key = end_key
         super(LengthFlag, self).__init__(length)
-        
+    
     def write(self, writer, lazyarray):
         end = lazyarray.find_position(self.end_key)
         begin = lazyarray.find_position(self.begin_key)
@@ -107,7 +107,10 @@ class Label(object):
 
 class DataChunk(object):
     def __init__(self, data):
-        self.data = data
+        if isinstance(data, unicode):
+            self.data = data.encode("utf-8")
+        else:
+            self.data = data
     
     def write(self, writer, lazyarray):
         writer.write(self.data)
@@ -150,7 +153,10 @@ class LazyEvaluateArray(object):
         return self._variables.get(key)
     
     def set_variable(self, key, value):
-        self._variables[key] = value
+        if isinstance(value, unicode):
+            self._variables[key] = value.encode("utf-8")
+        else:
+            self._variables[key] = value
     
     def length(self, start_key, end_key, length):
         self.lock_check() 

@@ -1,4 +1,4 @@
-
+#! -*- encoding: utf-8 -*-
 import os
 import time
 import struct
@@ -57,10 +57,14 @@ class MobiFileGenerator(LazyEvaluateArray):
     
     def set_text(self, text):
         self.set_variable("text length", len(text))
+        all_texts = len(text)
+        compressing = 0
         while True:
             if len(text) > 4096:
+                print "compress: %d/%d" % (compressing, all_texts)
                 self.texts.append(palm_compress.compress(text[:4096]))
                 text = text[4096:]
+                compressing += 4096
             else:
                 self.texts.append(palm_compress.compress(text))
                 break
@@ -113,9 +117,9 @@ class MobiFileGenerator(LazyEvaluateArray):
         self.generate_eof_record()
         
         self.lock()
-        for key, value in self._positions.items():
-            if "start" in key:
-                print key, value
+        #for key, value in self._positions.items():
+        #    if "start" in key:
+        #        print key, value
         
         file = open(os.path.join(output_folder, basename + ".azw"), "wb")
         self.write(file)
@@ -175,7 +179,7 @@ class PalmDocHeader(LazyEvaluateArray):
         self.variable("text length", 4)
         self.variable("palmdoc record count", 2)
         self.data("!H", 4096)                # record size
-        self.data("!H", 0)                   # current reading position
+        self.data("!I", 0)                   # current reading position
         self.label("pdb header:end")
 
 
@@ -193,9 +197,9 @@ class MobiHeader(LazyEvaluateArray):
         self.data("MOBI")
         self.length("mobi header:start", "mobi header:end", 4)
         self.data("!I", 2)                       # Mobi Type
-        self.data("!I", 65001)                   # Encoding: UTF-8
+        self.variable("text encoding", 4, default=65001)
         self.data("!I", self.unique_number())
-        self.data("!I", 0)                       # Generator, Version
+        self.variable("generator version", 4, default=6)    
         self.reserve(0xff, 40)
         self.variable("first non book index", 4)
         self.offset("full name:start", 4)
@@ -204,6 +208,7 @@ class MobiHeader(LazyEvaluateArray):
         # see http://msdn.microsoft.com/ja-jp/library/cc398328.aspx
         self.variable("input lang", 4, default=0)
         self.variable("output lang", 4, default=0)
+        self.variable("format version", 4, default=6)
         self.variable("first image index", 4)
         self.reserve(0, 16)
         self.variable("exth flag", 4, default=0x40)

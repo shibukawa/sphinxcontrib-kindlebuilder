@@ -30,7 +30,8 @@ class KindleBuilder(sphinx.builders.Builder):
     copysource = False
     out_suffix = '.html'
     link_suffix = '.html'
-    
+    supported_image_types = ['image/png', 'image/gif', 'image/jpeg']
+
     def init(self):
         self.init_highlighter()
         self.output = None
@@ -134,7 +135,7 @@ class KindleBuilder(sphinx.builders.Builder):
         self.info(bold('preparing documents... '), nonl=True)
         self.prepare_writing(docnames)
         self.info('done')
-
+        
         self.info(bold('assembling single document... '), nonl=True)
         doctree = self.assemble_doctree()
         self.info()
@@ -190,7 +191,7 @@ class KindleBuilder(sphinx.builders.Builder):
         # outfilename's path is in general different from self.outdir
         ensuredir(os.path.dirname(outfilename))
         try:
-            f = codecs.open(outfilename, 'w', encoding)
+            f = open(outfilename, "wb")
             try:
                 f.write(self.output)
             finally:

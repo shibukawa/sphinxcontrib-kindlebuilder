@@ -1,7 +1,9 @@
 import os
 from docutils import nodes
-from docutils.writers.html4css1 import Writer, HTMLTranslator
+from docutils.writers.html4css1 import Writer
+from sphinx.writers.html import HTMLTranslator
 from lazyevaluatearray import LazyEvaluateArray
+from sphinx.locale import admonitionlabels, versionlabels, _
 
 
 class KindleHTMLWriter(Writer):
@@ -95,7 +97,7 @@ class KindleHeadingWriter(LazyEvaluateArray):
 
 class KindleHTMLTranslator(HTMLTranslator):
     def __init__(self, builder, document):
-        nodes.NodeVisitor.__init__(self, document)
+        HTMLTranslator.__init__(self, builder, document)
         self.builder = builder
         self.settings = settings = document.settings
         # document title, subtitle display
@@ -182,6 +184,109 @@ class KindleHTMLTranslator(HTMLTranslator):
     def visit_comment(self, node):
         raise nodes.SkipNode
 
+    def visit_index(self, node):
+        raise nodes.SkipNode
+
+    def visit_highlightlang(self, node):
+        self.highlightlang = node['lang']
+        self.highlightlinenothreshold = node['linenothreshold']
+    def depart_highlightlang(self, node):
+        pass
+
+    def visit_desc(self, node):
+        self.body.append(self.starttag(node, 'dl', CLASS=node['objtype']))
+    def depart_desc(self, node):
+        self.body.append('</dl>\n\n')
+
+    def visit_desc_signature(self, node):
+        # the id is set automatically
+        self.body.append(self.starttag(node, 'dt'))
+        # anchor for per-desc interactive data
+        if node.parent['objtype'] != 'describe' \
+               and node['ids'] and node['first']:
+            self.body.append('<!--[%s]-->' % node['ids'][0])
+    def depart_desc_signature(self, node):
+        self.body.append('</dt>\n')
+
+    def visit_desc_addname(self, node):
+        self.body.append(self.starttag(node, 'tt', '', CLASS='descclassname'))
+    def depart_desc_addname(self, node):
+        self.body.append('</tt>')
+
+    def visit_desc_type(self, node):
+        pass
+    def depart_desc_type(self, node):
+        pass
+
+    def visit_desc_returns(self, node):
+        self.body.append(' &rarr; ')
+    def depart_desc_returns(self, node):
+        pass
+
+    def visit_desc_name(self, node):
+        self.body.append(self.starttag(node, 'tt', '', CLASS='descname'))
+    def depart_desc_name(self, node):
+        self.body.append('</tt>')
+
+    def visit_desc_parameterlist(self, node):
+        self.body.append('<big>(</big>')
+        self.first_param = 1
+    def depart_desc_parameterlist(self, node):
+        self.body.append('<big>)</big>')
+
+    def visit_desc_parameter(self, node):
+        if not self.first_param:
+            self.body.append(', ')
+        else:
+            self.first_param = 0
+        if not node.hasattr('noemph'):
+            self.body.append('<em>')
+    def depart_desc_parameter(self, node):
+        if not node.hasattr('noemph'):
+            self.body.append('</em>')
+
+    def visit_desc_optional(self, node):
+        self.body.append('<span class="optional">[</span>')
+    def depart_desc_optional(self, node):
+        self.body.append('<span class="optional">]</span>')
+
+    def visit_desc_annotation(self, node):
+        self.body.append(self.starttag(node, 'em', '', CLASS='property'))
+    def depart_desc_annotation(self, node):
+        self.body.append('</em>')
+
+    def visit_desc_content(self, node):
+        self.body.append(self.starttag(node, 'dd', ''))
+    def depart_desc_content(self, node):
+        self.body.append('</dd>')
+
+    def visit_versionmodified(self, node):
+        self.body.append(self.starttag(node, 'p', CLASS=node['type']))
+        text = versionlabels[node['type']] % node['version']
+        if len(node):
+            text += ': '
+        else:
+            text += '.'
+        self.body.append('<span class="versionmodified">%s</span>' % text)
+    def depart_versionmodified(self, node):
+        self.body.append('</p>\n')
+
+    def visit_literal_emphasis(self, node):
+        return self.visit_emphasis(node)
+    def depart_literal_emphasis(self, node):
+        return self.depart_emphasis(node)
+
+    def visit_download_reference(self, node):
+        if node.hasattr('filename'):
+            self.body.append(
+                '<a class="reference download internal" href="%s">' %
+                posixpath.join(self.builder.dlpath, node['filename']))
+            self.context.append('</a>')
+        else:
+            self.context.append('')
+    def depart_download_reference(self, node):
+        self.body.append(self.context.pop())
+
     def visit_image(self, node):
         atts = {}
         uri = node['uri']
@@ -234,3 +339,65 @@ class KindleHTMLTranslator(HTMLTranslator):
 
     def depart_title(self, node):
         pass
+
+    def visit_seealso(self, node):
+        self.visit_admonition(node, 'seealso')
+    def depart_seealso(self, node):
+        self.depart_admonition(node)
+
+    # overwritten
+    def visit_admonition(self, node, name=''):
+        self.body.append(self.starttag(
+            node, 'div', CLASS=('admonition ' + name)))
+        if name and name != 'seealso':
+            node.insert(0, nodes.title(name, admonitionlabels[name]))
+        self.set_first_last(node)
+
+    def visit_note(self, node):
+        self.visit_admonition(node, 'note')
+    def depart_note(self, node):
+        self.depart_admonition(node)
+
+    def visit_warning(self, node):
+        self.visit_admonition(node, 'warning')
+    def depart_warning(self, node):
+        self.depart_admonition(node)
+
+    def visit_attention(self, node):
+        self.visit_admonition(node, 'attention')
+
+    def depart_attention(self, node):
+        self.depart_admonition()
+
+    def visit_caution(self, node):
+        self.visit_admonition(node, 'caution')
+    def depart_caution(self, node):
+        self.depart_admonition()
+
+    def visit_danger(self, node):
+        self.visit_admonition(node, 'danger')
+    def depart_danger(self, node):
+        self.depart_admonition()
+
+    def visit_error(self, node):
+        self.visit_admonition(node, 'error')
+    def depart_error(self, node):
+        self.depart_admonition()
+
+    def visit_hint(self, node):
+        self.visit_admonition(node, 'hint')
+    def depart_hint(self, node):
+        self.depart_admonition()
+
+    def visit_important(self, node):
+        self.visit_admonition(node, 'important')
+    def depart_important(self, node):
+        self.depart_admonition()
+
+    def visit_tip(self, node):
+        self.visit_admonition(node, 'tip')
+    def depart_tip(self, node):
+        self.depart_admonition()
+
+    def unknown_visit(self, node):
+        raise NotImplementedError('Unknown node: ' + node.__class__.__name__)
