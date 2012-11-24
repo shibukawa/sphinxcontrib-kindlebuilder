@@ -152,7 +152,7 @@ class PalmDataBaseFormat(LazyEvaluateArray):
         self.data("!H", 0)                      # version
         self.data("!I", int(time.time()))       # creation date
         self.data("!I", int(time.time()))       # modification date
-        self.data("!I", 0)                      # last update date
+        self.data("!I", 0)                      # last backup date
         self.data("!I", 0)                      # Modification number
         self.data("!I", 0)                      # App info ID
         self.data("!I", 0)                      # Sort info ID
