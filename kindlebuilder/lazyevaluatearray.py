@@ -82,9 +82,12 @@ class Variable(VirtualChunk):
             else:
                 writer.write(self.convert(value))
         else:
-            writer.write(value)
-            for i in range(self.length - len(value)):
-                writer.write('\0')
+            if self.length <= len(value):
+                writer.write(value[:self.length])
+            else:
+                writer.write(value)
+                for i in range(self.length - len(value)):  # padding
+                    writer.write('\0')
 
     def dump(self):
         return "Variable: %s" % self.key
